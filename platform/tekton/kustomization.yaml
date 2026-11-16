@@ -1,0 +1,8 @@
+# Tekton Pipelines + Triggers + Dashboard (read-only), pinned releases.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://infra.tekton.dev/tekton-releases/pipeline/previous/v1.17.1/release.yaml
+  - https://infra.tekton.dev/tekton-releases/triggers/previous/v0.37.2/release.yaml
+  - https://infra.tekton.dev/tekton-releases/triggers/previous/v0.37.2/interceptors.yaml
+  - https://infra.tekton.dev/tekton-releases/dashboard/previous/v0.73.0/release.yaml

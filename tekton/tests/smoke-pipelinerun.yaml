@@ -1,0 +1,34 @@
+# Smoke test: full pipeline against a public repo, build only (push=false), no GitOps bump.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: smoke-
+  namespace: ci
+  labels:
+    scalesafe.io/test: smoke
+spec:
+  pipelineRef:
+    name: build-push-deploy
+  taskRunTemplate:
+    serviceAccountName: tekton-ci
+  timeouts:
+    pipeline: 20m
+  params:
+    - name: repo-url
+      value: https://github.com/dockersamples/linux_tweet_app.git
+    - name: revision
+      value: master
+    - name: image
+      value: ghcr.io/scalesafe-smoke/smoke-test  # never pushed (push=false)
+    - name: test-script
+      value: test -f Dockerfile && test -f index.html && echo "tests passed"
+    - name: push
+      value: "false"
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi

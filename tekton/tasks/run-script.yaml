@@ -1,0 +1,30 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-script
+  labels:
+    app.kubernetes.io/part-of: scalesafe-ci
+spec:
+  description: Run lint / unit tests inside any image against the source workspace.
+  params:
+    - name: image
+      type: string
+      default: docker.io/library/busybox:1.37.0
+    - name: script
+      type: string
+      default: echo "no tests configured"
+  workspaces:
+    - name: source
+  steps:
+    - name: run
+      image: $(params.image)
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: HOME
+          value: /tekton/home
+      securityContext:
+        allowPrivilegeEscalation: false
+      script: |
+        #!/bin/sh
+        set -eu
+        $(params.script)

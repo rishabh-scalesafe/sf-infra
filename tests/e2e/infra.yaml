@@ -1,0 +1,105 @@
+# Throwaway stand-ins for GitHub (Gitea) and GHCR (registry) so the FULL loop can be
+# tested without pushing anything to GitHub. Test-only: not part of the platform.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: e2e
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: gitea-data, namespace: e2e}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: gitea-config, namespace: e2e}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 100Mi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: registry-data, namespace: e2e}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 20Gi}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: e2e
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: gitea}
+  template:
+    metadata:
+      labels: {app: gitea}
+    spec:
+      containers:
+        - name: gitea
+          image: docker.io/gitea/gitea:28.2.0-rootless
+          ports:
+            - containerPort: 3000
+          env:
+            - {name: GITEA__database__DB_TYPE, value: sqlite3}
+            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            - {name: GITEA__server__ROOT_URL, value: "http://gitea.e2e.svc:3000/"}
+            - {name: GITEA__server__HTTP_PORT, value: "3000"}
+            - {name: GITEA__repository__ENABLE_PUSH_CREATE_USER, value: "true"}
+            - {name: GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE, value: "false"}
+            - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
+          readinessProbe:
+            httpGet: {path: /api/healthz, port: 3000}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/gitea}
+            - {name: config, mountPath: /etc/gitea}
+      volumes:
+        - {name: data, persistentVolumeClaim: {claimName: gitea-data}}
+        - {name: config, persistentVolumeClaim: {claimName: gitea-config}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: e2e
+spec:
+  selector: {app: gitea}
+  ports:
+    - {port: 3000, targetPort: 3000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: e2e
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: registry}
+  template:
+    metadata:
+      labels: {app: registry}
+    spec:
+      containers:
+        - name: registry
+          image: docker.io/library/registry:3.1.1
+          ports:
+            - containerPort: 5000
+          readinessProbe:
+            httpGet: {path: /v2/, port: 5000}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/registry}
+      volumes:
+        - {name: data, persistentVolumeClaim: {claimName: registry-data}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: e2e
+spec:
+  selector: {app: registry}
+  ports:
+    - {port: 5000, targetPort: 5000}

@@ -1,0 +1,109 @@
+#cloud-config
+# ScaleSafe k3s node bootstrap - cloud agnostic (Azure / AWS / GCP / any Ubuntu 24.04 VM).
+# Rendered by Terraform (templatefile) or by scripts/lib/render_cloudinit.py.
+# Role: ${role}
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - ca-certificates
+  - unattended-upgrades
+  - fail2ban
+  - nfs-common
+  - open-iscsi
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-scalesafe-hardening.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      X11Forwarding no
+      MaxAuthTries 3
+      ClientAliveInterval 300
+
+  - path: /etc/sysctl.d/90-scalesafe-k8s.conf
+    permissions: "0644"
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.tcp_syncookies = 1
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_user_watches = 524288
+      kernel.kptr_restrict = 2
+      # Required by kubelet --protect-kernel-defaults (CIS k3s hardening guide)
+      vm.panic_on_oom = 0
+      vm.overcommit_memory = 1
+      kernel.panic = 10
+      kernel.panic_on_oops = 1
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /etc/rancher/k3s/config.yaml
+    permissions: "0600"
+    content: |
+      token: "${k3s_token}"
+%{ if role == "server" ~}
+      write-kubeconfig-mode: "0600"
+      secrets-encryption: true
+      tls-san:
+%{ for san in tls_sans ~}
+        - "${san}"
+%{ endfor ~}
+      kube-apiserver-arg:
+        - "anonymous-auth=false"
+        - "audit-log-path=/var/lib/rancher/k3s/server/logs/audit.log"
+        - "audit-log-maxage=30"
+        - "audit-log-maxbackup=10"
+        - "audit-log-maxsize=100"
+        - "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml"
+      kubelet-arg:
+        - "protect-kernel-defaults=true"
+%{ else ~}
+      server: "${server_url}"
+      kubelet-arg:
+        - "protect-kernel-defaults=true"
+%{ endif ~}
+      node-label:
+        - "scalesafe.io/cloud=${cloud}"
+        - "scalesafe.io/cluster=${cluster_name}"
+
+%{ if role == "server" ~}
+  - path: /etc/rancher/k3s/audit-policy.yaml
+    permissions: "0600"
+    content: |
+      apiVersion: audit.k8s.io/v1
+      kind: Policy
+      omitStages: ["RequestReceived"]
+      rules:
+        - level: None
+          users: ["system:kube-proxy"]
+        - level: None
+          resources:
+            - group: ""
+              resources: ["events"]
+        - level: Metadata
+          resources:
+            - group: ""
+              resources: ["secrets", "configmaps"]
+        - level: Metadata
+%{ endif ~}
+
+runcmd:
+  - sysctl --system
+  - systemctl restart ssh || systemctl restart sshd
+  - systemctl enable --now fail2ban
+  - mkdir -p /var/lib/rancher/k3s/server/logs
+  - >-
+    curl -sfL https://get.k3s.io |
+    INSTALL_K3S_VERSION='${k3s_version}'
+    INSTALL_K3S_EXEC='${role == "server" ? "server" : "agent"}'
+    sh -
+  - touch /var/lib/scalesafe-bootstrap-done

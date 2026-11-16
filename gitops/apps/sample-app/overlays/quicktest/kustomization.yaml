@@ -1,0 +1,17 @@
+# Used by the Azure quick test: public unprivileged nginx stands in for the GHCR image.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sample-app
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: Deployment
+      name: sample-app
+    patch: |-
+      - op: remove
+        path: /spec/template/spec/imagePullSecrets
+images:
+  - name: sample-app
+    newName: docker.io/nginxinc/nginx-unprivileged
+    newTag: "1.29-alpine"

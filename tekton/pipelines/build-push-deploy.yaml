@@ -1,0 +1,133 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-push-deploy
+  labels:
+    app.kubernetes.io/part-of: scalesafe-ci
+spec:
+  description: >-
+    CI for every app repo: clone -> test -> kaniko build -> push to GHCR ->
+    bump image tag in the GitOps repo (Argo CD then deploys it = CD).
+  params:
+    - name: repo-url
+      type: string
+    - name: revision
+      type: string
+      default: main
+    - name: image
+      type: string
+      description: ghcr.io/<org>/<app> (lowercase)
+    - name: context
+      type: string
+      default: .
+    - name: dockerfile
+      type: string
+      default: Dockerfile
+    - name: test-image
+      type: string
+      default: docker.io/library/busybox:1.37.0
+    - name: test-script
+      type: string
+      default: echo "no tests configured"
+    - name: push
+      type: string
+      default: "true"
+    - name: insecure-registry
+      type: string
+      default: "false"
+    - name: gitops-repo-url
+      type: string
+      default: ""
+    - name: gitops-branch
+      type: string
+      default: main
+    - name: gitops-path
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+    - name: git-credentials
+      optional: true
+    - name: dockerconfig
+      optional: true
+  results:
+    - name: image-url
+      value: $(tasks.build.results.IMAGE_URL)
+    - name: image-digest
+      value: $(tasks.build.results.IMAGE_DIGEST)
+  tasks:
+    - name: fetch-source
+      taskRef:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+      workspaces:
+        - name: output
+          workspace: source
+        - name: basic-auth
+          workspace: git-credentials
+
+    - name: test
+      runAfter: ["fetch-source"]
+      taskRef:
+        name: run-script
+      params:
+        - name: image
+          value: $(params.test-image)
+        - name: script
+          value: $(params.test-script)
+      workspaces:
+        - name: source
+          workspace: source
+
+    - name: build
+      runAfter: ["test"]
+      taskRef:
+        name: kaniko-build-push
+      params:
+        - name: image
+          value: $(params.image)
+        - name: tag
+          value: $(tasks.fetch-source.results.short-sha)
+        - name: context
+          value: $(params.context)
+        - name: dockerfile
+          value: $(params.dockerfile)
+        - name: push
+          value: $(params.push)
+        - name: insecure-registry
+          value: $(params.insecure-registry)
+      workspaces:
+        - name: source
+          workspace: source
+        - name: dockerconfig
+          workspace: dockerconfig
+
+    - name: deploy-gitops
+      runAfter: ["build"]
+      when:
+        - input: $(params.push)
+          operator: in
+          values: ["true"]
+        - input: $(params.gitops-repo-url)
+          operator: notin
+          values: [""]
+      taskRef:
+        name: gitops-update-image
+      params:
+        - name: gitops-repo-url
+          value: $(params.gitops-repo-url)
+        - name: gitops-branch
+          value: $(params.gitops-branch)
+        - name: kustomization-path
+          value: $(params.gitops-path)
+        - name: image
+          value: $(params.image)
+        - name: tag
+          value: $(tasks.fetch-source.results.short-sha)
+      workspaces:
+        - name: git-credentials
+          workspace: git-credentials

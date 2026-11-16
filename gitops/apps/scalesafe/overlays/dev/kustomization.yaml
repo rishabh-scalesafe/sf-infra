@@ -1,0 +1,51 @@
+# ScaleSafe dev environment. Tekton's gitops-update-image task rewrites each newTag after a build.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: scalesafe
+resources:
+  - ../../base
+configMapGenerator:
+  # Public URLs as the browser sees them. Dev without a domain = kubectl port-forward on localhost.
+  - name: scalesafe-urls
+    literals:
+      - KEYCLOAK_PUBLIC_URL=http://localhost:8180
+      - OIDC_ISSUER=http://localhost:8180/realms/scalesafe
+      - APP_PUBLIC_URL=http://localhost:5173
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:5174
+  - name: scalesafe-web-config
+    literals:
+      - SCALESAFE_OIDC_AUTHORITY=http://localhost:8180/realms/scalesafe
+      - SCALESAFE_API_ORCHESTRATOR=http://localhost:8081
+      - SCALESAFE_API_CLIENTS=http://localhost:8082
+      - SCALESAFE_API_KYC=http://localhost:8083
+      - SCALESAFE_API_INVESTORS=http://localhost:8084
+      - SCALESAFE_API_VERIFICATION=http://localhost:8085
+      - SCALESAFE_API_ESIGN=http://localhost:8086
+images:
+  - name: scalesafe-orchestrator
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-orchestrator
+    newTag: "latest"
+  - name: scalesafe-client-service
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-client-service
+    newTag: "latest"
+  - name: scalesafe-kyc-service
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-kyc-service
+    newTag: "latest"
+  - name: scalesafe-investor-service
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-investor-service
+    newTag: "latest"
+  - name: scalesafe-verification-service
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-verification-service
+    newTag: "latest"
+  - name: scalesafe-esign-service
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-esign-service
+    newTag: "latest"
+  - name: scalesafe-app
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-app
+    newTag: "latest"
+  - name: scalesafe-admin
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-admin
+    newTag: "latest"
+  - name: scalesafe-site
+    newName: ghcr.io/__GITHUB_ORG__/scalesafe-site
+    newTag: "latest"

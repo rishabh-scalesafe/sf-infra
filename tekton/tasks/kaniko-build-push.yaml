@@ -1,0 +1,73 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: kaniko-build-push
+  labels:
+    app.kubernetes.io/part-of: scalesafe-ci
+spec:
+  description: >-
+    Build a container image from a Dockerfile with kaniko (no Docker daemon, no privileged
+    pod) and push it to GHCR. push=false builds only (used by smoke tests).
+  params:
+    - name: image
+      type: string
+      description: e.g. ghcr.io/scalesafe/sample-app
+    - name: tag
+      type: string
+    - name: context
+      type: string
+      default: .
+    - name: dockerfile
+      type: string
+      default: Dockerfile
+    - name: push
+      type: string
+      default: "true"
+    - name: insecure-registry
+      type: string
+      default: "false"
+      description: "true only for internal plain-HTTP registries (tests). Never for ghcr.io."
+  workspaces:
+    - name: source
+    - name: dockerconfig
+      optional: true
+      description: Secret with config.json for ghcr.io (see scripts/create-ci-secrets.sh).
+  results:
+    - name: IMAGE_URL
+    - name: IMAGE_DIGEST
+  steps:
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:v1.23.2-debug
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: DOCKER_CONFIG
+          value: /tekton/home/.docker
+      # Maven / npm builds inside kaniko need far more than the namespace default (1Gi).
+      computeResources:
+        requests:
+          cpu: 500m
+          memory: 1536Mi
+        limits:
+          memory: 3584Mi
+      script: |
+        #!/busybox/sh
+        set -eu
+        mkdir -p "$DOCKER_CONFIG"
+        if [ "$(workspaces.dockerconfig.bound)" = "true" ]; then
+          cp "$(workspaces.dockerconfig.path)/config.json" "$DOCKER_CONFIG/config.json"
+        fi
+        EXTRA=""
+        if [ "$(params.push)" != "true" ]; then EXTRA="--no-push"; fi
+        if [ "$(params.insecure-registry)" = "true" ]; then EXTRA="$EXTRA --insecure --skip-tls-verify"; fi
+        /kaniko/executor \
+          --dockerfile="$(params.dockerfile)" \
+          --context="$(workspaces.source.path)/$(params.context)" \
+          --destination="$(params.image):$(params.tag)" \
+          --digest-file="$(results.IMAGE_DIGEST.path)" \
+          --label="org.opencontainers.image.revision=$(params.tag)" \
+          --snapshot-mode=redo \
+          --cache=false \
+          $EXTRA
+        [ -s "$(results.IMAGE_DIGEST.path)" ] || printf 'none' > "$(results.IMAGE_DIGEST.path)"
+        printf '%s' "$(params.image):$(params.tag)" > "$(results.IMAGE_URL.path)"
+        echo "Built $(params.image):$(params.tag) push=$(params.push) digest=$(cat $(results.IMAGE_DIGEST.path))"

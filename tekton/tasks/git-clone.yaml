@@ -1,0 +1,61 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+  labels:
+    app.kubernetes.io/part-of: scalesafe-ci
+spec:
+  description: Shallow-clone a git repository at a revision into the output workspace.
+  params:
+    - name: url
+      type: string
+    - name: revision
+      type: string
+      default: main
+    - name: depth
+      type: string
+      default: "1"
+  workspaces:
+    - name: output
+    - name: basic-auth
+      optional: true
+      description: Secret with .git-credentials and .gitconfig (private repos).
+  results:
+    - name: commit
+    - name: short-sha
+  steps:
+    - name: clone
+      image: docker.io/alpine/git:2.52.0
+      env:
+        - name: HOME
+          value: /tekton/home
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      script: |
+        #!/bin/sh
+        set -eu
+        if [ "$(workspaces.basic-auth.bound)" = "true" ]; then
+          cp "$(workspaces.basic-auth.path)/.git-credentials" "$HOME/.git-credentials"
+          cp "$(workspaces.basic-auth.path)/.gitconfig" "$HOME/.gitconfig"
+          chmod 400 "$HOME/.git-credentials"
+        fi
+        git config --global --add safe.directory '*'
+        cd "$(workspaces.output.path)"
+        find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+        git init -q .
+        git remote add origin "$(params.url)"
+        if git fetch -q --depth "$(params.depth)" origin "$(params.revision)"; then
+          git checkout -q FETCH_HEAD
+        else
+          # Some servers refuse fetching a bare commit SHA - fall back to a full fetch.
+          echo "fetch by revision refused; fetching all refs"
+          git fetch -q origin '+refs/heads/*:refs/remotes/origin/*'
+          git checkout -q "$(params.revision)"
+        fi
+        printf '%s' "$(git rev-parse HEAD)" > "$(results.commit.path)"
+        printf '%s' "$(git rev-parse --short=7 HEAD)" > "$(results.short-sha.path)"
+        echo "Cloned $(params.url) @ $(git rev-parse HEAD)"

@@ -1,0 +1,123 @@
+# Client portal + admin console (React/Vite on unprivileged nginx) and the corporate site.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-app
+spec:
+  selector: {app.kubernetes.io/name: web-app}
+  ports:
+    - {name: http, port: 8080, targetPort: 8080}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: web-app}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: web-app, app.kubernetes.io/part-of: scalesafe, scalesafe.io/tier: web}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: web
+          image: scalesafe-app
+          ports: [{containerPort: 8080, name: http}]
+          envFrom:
+            - configMapRef: {name: scalesafe-web-config}
+          env:
+            - {name: SCALESAFE_OIDC_CLIENT_ID, value: scalesafe-app}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-admin
+spec:
+  selector: {app.kubernetes.io/name: web-admin}
+  ports:
+    - {name: http, port: 8080, targetPort: 8080}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: web-admin}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: web-admin, app.kubernetes.io/part-of: scalesafe, scalesafe.io/tier: web}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: web
+          image: scalesafe-admin
+          ports: [{containerPort: 8080, name: http}]
+          envFrom:
+            - configMapRef: {name: scalesafe-web-config}
+          env:
+            - {name: SCALESAFE_OIDC_CLIENT_ID, value: scalesafe-admin}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: site
+spec:
+  selector: {app.kubernetes.io/name: site}
+  ports:
+    - {name: http, port: 8080, targetPort: 8080}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: site
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: site}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: site, app.kubernetes.io/part-of: scalesafe, scalesafe.io/tier: web}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: web
+          image: scalesafe-site
+          ports: [{containerPort: 8080, name: http}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}

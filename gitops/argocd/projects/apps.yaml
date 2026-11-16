@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  description: Business applications - namespaced resources only, no cluster-scoped objects
+  sourceRepos:
+    - __GITOPS_REPO_URL__
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: sample-app
+    - server: https://kubernetes.default.svc
+      namespace: scalesafe
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange

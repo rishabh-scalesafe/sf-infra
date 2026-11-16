@@ -1,0 +1,25 @@
+# App-of-apps entry point. Apply ONCE after the repo is pushed to GitHub:
+#   kubectl apply -f gitops/argocd/root.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: __GITOPS_REPO_URL__
+    targetRevision: main
+    path: gitops/argocd
+    directory:
+      recurse: true
+      exclude: root.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

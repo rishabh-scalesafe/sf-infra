@@ -1,0 +1,89 @@
+# Prunes finished PipelineRuns in namespace ci.
+# Why: every PipelineRun creates a PVC from its volumeClaimTemplate. Tekton
+# deletes that PVC only when the PipelineRun object is deleted. Without
+# pruning, the ci-quota (persistentvolumeclaims: 20) fills after about 20
+# builds, and every new build then sits in PipelineRunPending.
+# This was found on the quick-test cluster on 16 Nov 2026.
+# Keeps the newest KEEP finished runs; running and pending runs are never
+# touched.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-pruner
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-pruner
+rules:
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-pruner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-pruner
+subjects:
+  - kind: ServiceAccount
+    name: tekton-pruner
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tekton-pruner
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          serviceAccountName: tekton-pruner
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: prune
+              image: alpine/k8s:1.36.5   # kubectl + /bin/sh (rancher/kubectl has no shell)
+              env:
+                - {name: KEEP, value: "10"}
+                - {name: HOME, value: /tmp}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  # finished = Succeeded condition status True or False (not Unknown)
+                  kubectl get pipelineruns --sort-by=.metadata.creationTimestamp \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.conditions[0].status}{"\n"}{end}' \
+                    | awk '$2=="True" || $2=="False" {print $1}' > /tmp/done
+                  total=$(wc -l < /tmp/done)
+                  extra=$((total - KEEP))
+                  if [ "$extra" -gt 0 ]; then
+                    head -n "$extra" /tmp/done | xargs kubectl delete pipelinerun --wait=false
+                  fi
+                  echo "finished=$total pruned=$([ "$extra" -gt 0 ] && echo $extra || echo 0) keep=$KEEP"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: tmp
+              emptyDir: {sizeLimit: 16Mi}

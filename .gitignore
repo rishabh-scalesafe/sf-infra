@@ -1,0 +1,15 @@
+# Secrets & local state - NEVER commit
+.local/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl.bak
+crash.log
+kubeconfig*
+*.pem
+id_*
+*.key
+.env
+.env.*

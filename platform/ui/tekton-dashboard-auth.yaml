@@ -1,0 +1,71 @@
+# The Tekton Dashboard has no login of its own, so it is never exposed directly.
+# oauth2-proxy sits in front of it and only lets in members of the GitHub org
+# (optionally one team). Credentials come from secret `oauth2-proxy-tekton`
+# (scripts/create-ui-secrets.sh); nothing sensitive is stored in git.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-dashboard-auth
+  namespace: tekton-pipelines
+  labels: {app: tekton-dashboard-auth}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tekton-dashboard-auth}
+  template:
+    metadata:
+      labels: {app: tekton-dashboard-auth}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0   # pinned, see versions.env
+          args:
+            - --provider=github
+            - --github-org=__GITHUB_ORG__
+            # - --github-team=platform          # uncomment to restrict to one team
+            - --email-domain=*
+            - --upstream=http://tekton-dashboard.tekton-pipelines.svc.cluster.local:9097
+            - --http-address=0.0.0.0:4180
+            - --redirect-url=https://tekton.indiescale.in/oauth2/callback
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-samesite=lax
+            - --cookie-expire=8h
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_ID
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-tekton, key: client-id}}
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-tekton, key: client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-tekton, key: cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          readinessProbe:
+            httpGet: {path: /ping, port: http}
+          livenessProbe:
+            httpGet: {path: /ping, port: http}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tekton-dashboard-auth
+  namespace: tekton-pipelines
+spec:
+  selector: {app: tekton-dashboard-auth}
+  ports:
+    - {name: http, port: 4180, targetPort: http}

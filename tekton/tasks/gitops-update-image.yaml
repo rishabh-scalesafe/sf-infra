@@ -1,0 +1,68 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: gitops-update-image
+  labels:
+    app.kubernetes.io/part-of: scalesafe-ci
+spec:
+  description: >-
+    Bump the image tag in a kustomize overlay of the GitOps repo and push the commit.
+    Argo CD notices the commit and rolls out the new image (Tekton never touches the cluster
+    workloads directly - Git stays the single source of truth).
+  params:
+    - name: gitops-repo-url
+      type: string
+    - name: gitops-branch
+      type: string
+      default: main
+    - name: kustomization-path
+      type: string
+      description: e.g. gitops/apps/sample-app/overlays/prod
+    - name: image
+      type: string
+      description: must equal the `newName:` of the images entry in kustomization.yaml
+    - name: tag
+      type: string
+  workspaces:
+    - name: git-credentials
+      optional: true
+      description: Secret with .git-credentials and .gitconfig (PAT with contents:write).
+  steps:
+    - name: bump-and-push
+      image: docker.io/alpine/git:2.52.0
+      env:
+        - name: HOME
+          value: /tekton/home
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      script: |
+        #!/bin/sh
+        set -eu
+        [ "$(workspaces.git-credentials.bound)" = "true" ] || { echo "git-credentials workspace required"; exit 1; }
+        cp "$(workspaces.git-credentials.path)/.git-credentials" "$HOME/.git-credentials"
+        cp "$(workspaces.git-credentials.path)/.gitconfig" "$HOME/.gitconfig"
+        chmod 400 "$HOME/.git-credentials"
+        git config --global user.name  "scalesafe-tekton-bot"
+        git config --global user.email "ci-bot@users.noreply.github.com"
+        WORK=/tekton/home/gitops
+        git clone -q --depth 20 --branch "$(params.gitops-branch)" "$(params.gitops-repo-url)" "$WORK"
+        cd "$WORK"
+        K="$(params.kustomization-path)/kustomization.yaml"
+        [ -f "$K" ] || { echo "missing $K"; exit 1; }
+        awk -v img="$(params.image)" -v tag="$(params.tag)" '
+          $0 ~ "newName:[[:space:]]*"img"[[:space:]]*$" { hit=1; print; next }
+          hit && $0 ~ /newTag:/ { sub(/newTag:.*/, "newTag: \"" tag "\""); hit=0 }
+          { print }' "$K" > "$K.new"
+        mv "$K.new" "$K"
+        if git diff --quiet; then echo "already at $(params.tag)"; exit 0; fi
+        git add "$K"
+        git commit -q -m "deploy: $(params.image):$(params.tag) [tekton]"
+        for i in 1 2 3 4 5; do
+          if git push -q origin "HEAD:$(params.gitops-branch)"; then echo "pushed"; exit 0; fi
+          echo "push rejected, rebasing (attempt $i)"; git pull -q --rebase origin "$(params.gitops-branch)"
+        done
+        exit 1

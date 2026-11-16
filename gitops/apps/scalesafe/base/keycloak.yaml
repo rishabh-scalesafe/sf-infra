@@ -1,0 +1,57 @@
+# Keycloak. Dev mode: start-dev + realm import from ConfigMap scalesafe-realm (created by
+# scripts/scalesafe/secrets.sh from the application repo; it is application config, not infra).
+# Production: `start` with Postgres as its DB, TLS and a real hostname.
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+spec:
+  selector: {app.kubernetes.io/name: keycloak}
+  ports:
+    - {name: http, port: 8080, targetPort: 8080}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: keycloak}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: scalesafe}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.0.7
+          args: ["start-dev", "--import-realm"]
+          ports: [{containerPort: 8080, name: http}, {containerPort: 9000, name: mgmt}]
+          env:
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin}
+            - {name: KC_BOOTSTRAP_ADMIN_PASSWORD, valueFrom: {secretKeyRef: {name: scalesafe-keycloak, key: admin-password}}}
+            - {name: KC_HOSTNAME, valueFrom: {configMapKeyRef: {name: scalesafe-urls, key: KEYCLOAK_PUBLIC_URL}}}
+            - {name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true"}
+            - {name: KC_HEALTH_ENABLED, value: "true"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          startupProbe:
+            httpGet: {path: /health/started, port: mgmt}
+            periodSeconds: 10
+            failureThreshold: 40
+          readinessProbe:
+            httpGet: {path: /health/ready, port: mgmt}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import, readOnly: true}
+      volumes:
+        - {name: realm, configMap: {name: scalesafe-realm}}

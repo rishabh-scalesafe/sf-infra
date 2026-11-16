@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+data:
+  # Least privilege by default: authenticated users are read-only.
+  policy.default: role:readonly
+  policy.csv: |
+    # GitHub team "platform" in the org gets admin; every other org member is read-only
+    # (policy.default). Rename the team here if yours is called something else.
+    g, __GITHUB_ORG__:platform, role:admin
+  scopes: "[groups]"

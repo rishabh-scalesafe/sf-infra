@@ -1,0 +1,28 @@
+# CD UI: https://argocd.indiescale.in  ->  argocd-server (plain HTTP inside the cluster,
+# server.insecure=true; TLS ends at Traefik/Cloudflare). Login: GitHub SSO via dex
+# (platform/argocd/argocd-cm.yaml), local admin until SSO is verified.
+# The argocd CLI works through this host with:  argocd login argocd.indiescale.in --grpc-web --sso
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: argocd-ui-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [argocd.indiescale.in]
+      secretName: origin-tls
+  rules:
+    - host: argocd.indiescale.in
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port: {number: 80}

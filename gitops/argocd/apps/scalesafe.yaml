@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: scalesafe
+  namespace: argocd
+  annotations:
+    # Diff via the API server incl. mutating webhooks (Tekton defaults, CRD caBundles)
+    argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
+spec:
+  project: apps
+  source:
+    repoURL: __GITOPS_REPO_URL__
+    targetRevision: main
+    path: gitops/apps/scalesafe/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: scalesafe
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=false
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

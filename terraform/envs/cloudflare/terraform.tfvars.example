@@ -1,0 +1,7 @@
+# export CLOUDFLARE_API_TOKEN=...   (Zone > DNS > Edit on this zone only)
+zone_id   = "your-zone-id"
+zone_name = "indiescale.in"
+# From: scripts/deploy.sh <cloud> apply  ->  terraform output ingress_ips
+origin_ips = ["20.0.0.1"]
+hostnames  = ["app", "argocd", "tekton", "hooks"]
+proxied    = true

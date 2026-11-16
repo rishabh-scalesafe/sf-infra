@@ -1,0 +1,25 @@
+# CI UI: https://tekton.indiescale.in  ->  oauth2-proxy  ->  Tekton Dashboard (read-only)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tekton-dashboard
+  namespace: tekton-pipelines
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: tekton-pipelines-ui-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [tekton.indiescale.in]
+      secretName: origin-tls
+  rules:
+    - host: tekton.indiescale.in
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tekton-dashboard-auth
+                port: {number: 4180}

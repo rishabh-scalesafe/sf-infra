@@ -1,0 +1,13 @@
+# Public web UIs for the platform:
+#   https://tekton.indiescale.in   Tekton Dashboard (CI)  - read-only, behind GitHub sign-in (oauth2-proxy)
+#   https://argocd.indiescale.in   Argo CD UI (CD)        - Argo CD's own login + GitHub SSO (dex)
+# TLS: Cloudflare proxies both hosts; the origin serves a Cloudflare Origin CA certificate
+# (secret `origin-tls` in each namespace, created by scripts/create-ui-secrets.sh).
+# Set Cloudflare SSL/TLS mode to "Full (strict)".
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - middleware.yaml
+  - tekton-dashboard-auth.yaml
+  - tekton-dashboard-ingress.yaml
+  - argocd-ingress.yaml

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+data:
+  # Set to your public URL when exposed (e.g. https://argocd.indiescale.in)
+  url: https://argocd.indiescale.in
+  timeout.reconciliation: 120s
+  # Disable the anonymous user. Local admin stays on until GitHub SSO is verified,
+  # then set admin.enabled to "false" (docs/CICD-FLOW.md, step "Lock down").
+  users.anonymous.enabled: "false"
+  admin.enabled: "true"
+  # GitHub SSO through the bundled dex. Credentials live in argocd-secret
+  # (scripts/create-ui-secrets.sh). Until they exist, the GitHub button simply fails.
+  dex.config: |
+    connectors:
+      - type: github
+        id: github
+        name: GitHub
+        config:
+          clientID: $dex.github.clientID
+          clientSecret: $dex.github.clientSecret
+          orgs:
+            - name: __GITHUB_ORG__
+  exec.enabled: "false"
+  statusbadge.enabled: "false"
+  # Ignore noisy status diffs on Tekton resources
+  resource.exclusions: |
+    - apiGroups: ["tekton.dev"]
+      kinds: ["TaskRun", "PipelineRun"]
+      clusters: ["*"]

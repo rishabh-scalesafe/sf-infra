@@ -1,0 +1,14 @@
+# ScaleSafe CI definitions (Tasks, Pipeline, Triggers). Lives in namespace `ci`.
+# Secrets are NOT here - create them with scripts/create-ci-secrets.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ci
+resources:
+  - rbac/service-accounts.yaml
+  - tasks/git-clone.yaml
+  - tasks/run-script.yaml
+  - tasks/kaniko-build-push.yaml
+  - tasks/gitops-update-image.yaml
+  - pipelines/build-push-deploy.yaml
+  - triggers/github-push.yaml
+  - pruner.yaml

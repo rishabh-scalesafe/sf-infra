@@ -1,0 +1,110 @@
+# GitHub webhook -> PipelineRun. Configure the webhook in GitHub:
+#   Payload URL: https://hooks.indiescale.in/   Content type: application/json
+#   Secret: value of secret ci/github-webhook-secret (key: token)   Events: push
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: github-push
+spec:
+  params:
+    - name: repo-url
+      value: $(body.repository.clone_url)
+    - name: revision
+      value: $(body.after)
+    - name: repo-name
+      value: $(extensions.repo_name_lower)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: build-push-deploy
+spec:
+  params:
+    - name: repo-url
+    - name: revision
+    - name: repo-name
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: $(tt.params.repo-name)-
+        labels:
+          scalesafe.io/app: $(tt.params.repo-name)
+      spec:
+        pipelineRef:
+          name: build-push-deploy
+        taskRunTemplate:
+          serviceAccountName: tekton-ci
+        timeouts:
+          pipeline: 30m
+        params:
+          - name: repo-url
+            value: $(tt.params.repo-url)
+          - name: revision
+            value: $(tt.params.revision)
+          - name: image
+            value: ghcr.io/__GITHUB_ORG__/$(tt.params.repo-name)
+          - name: gitops-repo-url
+            value: __GITOPS_REPO_URL__
+          - name: gitops-path
+            value: gitops/apps/$(tt.params.repo-name)/overlays/prod
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 1Gi
+          - name: git-credentials
+            secret:
+              secretName: git-credentials
+          - name: dockerconfig
+            secret:
+              secretName: ghcr-push
+              items:
+                - key: .dockerconfigjson
+                  path: config.json
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: github
+spec:
+  serviceAccountName: tekton-triggers
+  resources:
+    kubernetesResource:
+      spec:
+        template:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: 25m
+                    memory: 64Mi
+  triggers:
+    - name: github-push-main
+      interceptors:
+        - ref:
+            name: github
+          params:
+            - name: secretRef
+              value:
+                secretName: github-webhook-secret
+                secretKey: token
+            - name: eventTypes
+              value: ["push"]
+        - ref:
+            name: cel
+          params:
+            - name: filter
+              value: >-
+                body.ref == 'refs/heads/main' && body.deleted == false
+            - name: overlays
+              value:
+                - key: repo_name_lower
+                  expression: body.repository.name.lowerAscii()
+      bindings:
+        - ref: github-push
+      template:
+        ref: build-push-deploy
